@@ -1,8 +1,7 @@
 from time import time
 from typing import TYPE_CHECKING, Callable, Coroutine, Type, Union
-from urllib.parse import quote, urlencode
 
-from httpx import AsyncClient, get, post
+from curl_cffi.requests import AsyncSession, get, post
 from rich.progress import (
     BarColumn,
     Progress,
@@ -10,12 +9,19 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from ..custom import PROGRESS, USERAGENT, wait
-from ..tools import DownloaderError, FakeProgress, Retry, capture_error_request
+from ..custom import PROGRESS, wait
+from ..tools import (
+    DownloaderError,
+    FakeProgress,
+    Retry,
+    capture_error_request,
+    cookie_str_to_dict,
+)
 from ..translation import _
 
 if TYPE_CHECKING:
     from ..config import Parameter
+    from ..encrypt import DouYinParams, TikTokParams
     from ..testers import Params
 
 __all__ = [
@@ -34,21 +40,23 @@ class API:
         "channel": "channel_pc_web",
         "update_version_code": "170400",
         "pc_client_type": "1",
-        "pc_libra_divert": "Windows",
+        "pc_libra_divert": "Mac",
+        "support_h265": "1",
+        "support_dash": "1",
         "version_code": "290100",
         "version_name": "29.1.0",
         "cookie_enabled": "true",
         "screen_width": "1536",
         "screen_height": "864",
-        "browser_language": "zh-SG",
-        "browser_platform": "Win32",
+        "browser_language": "zh-CN",
+        "browser_platform": "MacIntel",
         "browser_name": "Chrome",
-        "browser_version": "139.0.0.0",
+        "browser_version": "146.0.0.0",
         "browser_online": "true",
         "engine_name": "Blink",
-        "engine_version": "139.0.0.0",
-        "os_name": "Windows",
-        "os_version": "10",
+        "engine_version": "146.0.0.0",
+        "os_name": "Mac OS",
+        "os_version": "10.15.7",
         "cpu_core_num": "16",
         "device_memory": "8",
         "platform": "PC",
@@ -65,21 +73,22 @@ class API:
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         *args,
         **kwargs,
     ):
         self.headers = params.headers.copy()
         self.log = params.logger
-        self.ab = params.ab
-        self.xb = params.xb
+        self.douyin_params: "DouYinParams" = params.douyin_params
         self.console = params.console
         self.api = ""
         self.proxy = proxy
         self.max_retry = params.max_retry
         self.timeout = params.timeout
         self.cookie = cookie
-        self.client: AsyncClient = params.client
+        self.client: AsyncSession = params.client
+        self.impersonate = params.impersonate
+        self.user_agent = params.user_agent
         self.pages = 99999
         self.cursor = 0
         self.response = []
@@ -90,11 +99,28 @@ class API:
     def set_temp_cookie(self, cookie: str = ""):
         if cookie:
             self.headers["Cookie"] = cookie
+            uifid = next(
+                (
+                    value
+                    for key, value in cookie_str_to_dict(cookie).items()
+                    if key.lower() == "uifid"
+                ),
+                "",
+            )
+            if uifid:
+                self.headers["uifid"] = uifid
 
     def generate_params(
         self,
     ) -> dict:
         return self.params
+
+    def __generate_params(
+        self,
+    ) -> dict:
+        params = self.generate_params()
+        params["msToken"] = params.pop("msToken")
+        return params
 
     def generate_data(self, *args, **kwargs) -> dict:
         return {}
@@ -161,7 +187,7 @@ class API:
     ):
         if data := await self.request_data(
             self.api,
-            params=params() or self.generate_params(),
+            params=params() or self.__generate_params(),
             data=data() or self.generate_data(),
             method=method,
             headers=headers,
@@ -244,14 +270,14 @@ class API:
         data: dict = None,
         method="GET",
         headers: dict = None,
-        encryption="GET",
         finished=False,
-        *args,
         **kwargs,
     ):
         params = self.deal_url_params(
+            url,
             params,
-            encryption,
+            data,
+            method,
         )
         match (method, bool(self.proxy)):
             case ("GET", False):
@@ -260,7 +286,6 @@ class API:
                     params,
                     headers or self.headers,
                     finished=finished,
-                    *args,
                     **kwargs,
                 )
             case ("GET", True):
@@ -269,7 +294,6 @@ class API:
                     params,
                     headers or self.headers,
                     finished=finished,
-                    *args,
                     **kwargs,
                 )
             case ("POST", False):
@@ -279,7 +303,6 @@ class API:
                     data,
                     headers or self.headers,
                     finished=finished,
-                    *args,
                     **kwargs,
                 )
             case ("POST", True):
@@ -289,7 +312,6 @@ class API:
                     data,
                     headers or self.headers,
                     finished=finished,
-                    *args,
                     **kwargs,
                 )
             case _:
@@ -340,7 +362,8 @@ class API:
             f"{url}?{params}",
             headers=headers,
             proxy=self.proxy,
-            follow_redirects=True,
+            impersonate=self.impersonate,
+            allow_redirects=True,
             verify=False,
             timeout=self.timeout,
             **kwargs,
@@ -384,7 +407,8 @@ class API:
             data=data,
             headers=headers,
             proxy=self.proxy,
-            follow_redirects=True,
+            impersonate=self.impersonate,
+            allow_redirects=True,
             verify=False,
             timeout=self.timeout,
             **kwargs,
@@ -422,17 +446,16 @@ class API:
 
     def deal_url_params(
         self,
+        url: str,
         params: dict,
+        data: dict | None = None,
         method="GET",
         **kwargs,
     ) -> str:
         if params:
-            params = urlencode(
-                params,
-                quote_via=quote,
+            return self.douyin_params.sign_url(
+                url, params, data, method, user_agent=self.user_agent
             )
-            params += f"&a_bogus={self.ab.get_value(params, method)}"
-            return params
         return ""
 
     def summary_works(
@@ -450,9 +473,13 @@ class API:
         server_mode: bool = False,
     ) -> None:
         if server_mode:
-            cls.progress_object = cls.__fake_progress_object
+            cls._progress_factory = cls.__fake_progress_object
         else:
-            cls.progress_object = cls.__general_progress_object
+            cls._progress_factory = cls.__general_progress_object
+
+    def progress_object(self):
+        factory = getattr(self, "_progress_factory", self.__general_progress_object)
+        return factory()
 
     def __general_progress_object(self):
         return Progress(
@@ -499,23 +526,24 @@ class APITikTok(API):
         "browser_language": "zh-SG",
         "browser_name": "Mozilla",
         "browser_online": "true",
-        "browser_platform": "Win32",
-        "browser_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+        "browser_platform": "MacIntel",
+        "browser_version": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
         "channel": "tiktok_web",
         "cookie_enabled": "true",
         "data_collection_enabled": "true",
         "device_id": "",
         "device_platform": "web_pc",
+        "enable_cache": "true",
         "focus_state": "true",
         "from_page": "user",
         "history_len": "4",
         "is_fullscreen": "false",
         "is_page_visible": "true",
         "language": "en",
-        "os": "windows",
-        "priority_region": "CN",
+        "os": "mac",
+        "priority_region": "US",
         "referer": "",
-        "region": "JP",
+        "region": "US",
         "screen_height": "864",
         "screen_width": "1536",
         "tz_name": "Asia/Shanghai",
@@ -528,14 +556,17 @@ class APITikTok(API):
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         *args,
         **kwargs,
     ):
         super().__init__(params, cookie, proxy, *args, **kwargs)
+        self.tiktok_params: "TikTokParams" = params.tiktok_params
         self.headers = params.headers_tiktok.copy()
         self.cookie = cookie
-        self.client: AsyncClient = params.client_tiktok
+        self.client: AsyncSession = params.client_tiktok
+        self.impersonate = params.impersonate_tiktok
+        self.user_agent_tiktok = params.user_agent_tiktok
         self.set_temp_cookie(cookie)
 
     async def request_data(
@@ -545,9 +576,7 @@ class APITikTok(API):
         data: dict = None,
         method="GET",
         headers: dict = None,
-        encryption=8,
         finished=False,
-        *args,
         **kwargs,
     ):
         return await super().request_data(
@@ -556,27 +585,25 @@ class APITikTok(API):
             data=data,
             method=method,
             headers=headers,
-            encryption=encryption,
             finished=finished,
-            *args,
             **kwargs,
         )
 
     def deal_url_params(
         self,
+        url: str,
         params: dict,
-        number=8,
+        data: dict | None = None,
+        method="GET",
         **kwargs,
     ) -> str:
         if params:
-            params = urlencode(
+            return self.tiktok_params.sign_url(
+                url,
                 params,
-                quote_via=quote,
+                data,
+                method,
+                user_agent=self.user_agent_tiktok,
+                ms_token=self.params["msToken"],
             )
-            params += f"&X-Bogus={
-                self.xb.get_x_bogus(
-                    params, number, self.headers.get('User-Agent', USERAGENT)
-                )
-            }"
-            return params
         return ""

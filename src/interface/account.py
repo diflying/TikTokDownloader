@@ -17,7 +17,7 @@ class Account(API):
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         sec_user_id: str = ...,
         tab="post",
         earliest: str | float | int = "",
@@ -168,6 +168,7 @@ class Account(API):
                 return self.generate_favorite_params()
             case False:
                 return self.generate_post_params()
+        return {}
 
     def generate_favorite_params(self) -> dict:
         return self.params | {
@@ -194,6 +195,7 @@ class Account(API):
             "cut_version": "1",
             "count": self.count,
             "publish_video_strategy_type": "2",
+            "from_user_page": "1",
         }
 
     def check_type(self, tab: str, pages: int) -> tuple[str, bool, int]:

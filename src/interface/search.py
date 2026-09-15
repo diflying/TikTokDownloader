@@ -135,7 +135,7 @@ class Search(API):
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         keyword: str = ...,
         channel: int = 0,
         pages: int = 99999,
@@ -146,7 +146,7 @@ class Search(API):
         content_type: int = 0,
         douyin_user_fans: int = 0,
         douyin_user_type: int = 0,
-        cursor: int = 0,
+        offset: int = 0,
         count: int = 10,
         *args,
         **kwargs,
@@ -162,7 +162,7 @@ class Search(API):
         self.search_range = search_range
         self.douyin_user_fans = self.douyin_user_fans_map.get(douyin_user_fans, [""])
         self.douyin_user_type = self.douyin_user_type_map.get(douyin_user_type, [""])
-        self.cursor = cursor
+        self.offset = offset
         self.count = count
         self.type = self.channel.type
         self.api = self.channel.api
@@ -227,6 +227,7 @@ class Search(API):
                 },
                 separators=(",", ":"),
             )
+        return None
 
     def generate_search_filter_value(
         self,
@@ -244,19 +245,22 @@ class Search(API):
                 },
                 separators=(",", ":"),
             )
+        return None
 
     def _generate_params_general(
         self,
     ) -> dict:
         params = self.params | {
+            "pc_search_top_1_params": '{"enable_ai_search_top_1":1}',
             "search_channel": self.channel.channel,
             "enable_history": "1",
             "keyword": self.keyword,
-            "search_source": "tab_search",
+            "search_source": "switch_tab",
             "query_correct_type": "1",
             "is_filter_search": "0",
             "from_group_id": "",
-            "offset": self.cursor,
+            "disable_rs": "0",
+            "offset": self.offset,
             "count": self.count,
             "need_filter_settings": "0",
             "list_type": "single",
@@ -276,14 +280,16 @@ class Search(API):
         self,
     ) -> dict:
         params = self.params | {
+            "pc_search_top_1_params": '{"enable_ai_search_top_1":1}',
             "search_channel": self.channel.channel,
             "enable_history": "1",
             "keyword": self.keyword,
-            "search_source": "tab_search",
+            "search_source": "switch_tab",
             "query_correct_type": "1",
             "is_filter_search": "0",
             "from_group_id": "",
-            "offset": self.cursor,
+            "disable_rs": "0",
+            "offset": self.offset,
             "count": self.count,
             "need_filter_settings": "0",
             "list_type": "single",
@@ -329,13 +335,15 @@ class Search(API):
         self,
     ) -> dict:
         params = self.params | {
+            "pc_search_top_1_params": '{"enable_ai_search_top_1":1}',
             "search_channel": self.channel.channel,
             "keyword": self.keyword,
-            "search_source": "tab_search",
+            "search_source": "switch_tab",
             "query_correct_type": "1",
             "is_filter_search": "0",
             "from_group_id": "",
-            "offset": self.cursor,
+            "disable_rs": "0",
+            "offset": self.offset,
             "count": self.count,
             "need_filter_settings": "0",
             "list_type": "single",
@@ -361,10 +369,11 @@ class Search(API):
                 self.log.warning(error_text)
                 self.finished = True
             elif len(d) == 0:
-                self.response.append([])
+                if not self.response:
+                    self.response.append([])
                 self.finished = True
             else:
-                self.cursor = data_dict[cursor]
+                self.offset = data_dict[cursor]
                 self.search_id = data_dict["log_pb"]["impr_id"]
                 match self.type:
                     case "general" | "video" | "user":
@@ -395,6 +404,8 @@ async def test():
     from src.testers import Params
 
     async with Params() as params:
+        Search.params["uifid"] = params.uifid
+        Search.params["msToken"] = params.ms_token
         i = Search(
             params,
             keyword="",

@@ -19,14 +19,14 @@ class AccountTikTok(
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         sec_user_id: str = ...,
         tab="post",
         earliest: str | float | int = "",
         latest: str | float | int = "",
         pages: int = None,
         cursor=0,
-        count=35,
+        count=16,
         *args,
         **kwargs,
     ):
@@ -130,6 +130,8 @@ class AccountTikTok(
             "cursor": self.cursor,
             "coverFormat": "2",
             "post_item_list_request_type": "0",
+            "needPinnedItemIds": "true",
+            "video_encoding": "dash",
         }
 
 
@@ -137,6 +139,7 @@ async def test():
     from src.testers import Params
 
     async with Params() as params:
+        AccountTikTok.params["msToken"] = params.ms_token_tiktok
         i = AccountTikTok(
             params,
             sec_user_id="",

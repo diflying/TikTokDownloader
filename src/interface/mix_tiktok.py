@@ -13,7 +13,7 @@ class MixTikTok(APITikTok):
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         mix_title: str = ...,
         mix_id: str = ...,
         # detail_id: str = None,
@@ -37,7 +37,8 @@ class MixTikTok(APITikTok):
         return self.params | {
             "count": self.count,
             "cursor": self.cursor,
-            "mixId": self.mix_id,
+            "collectionId": self.mix_id,
+            "sourceType": "113",
         }
 
     async def run(
@@ -76,7 +77,7 @@ class MixListTikTok(APITikTok):
         self,
         params: Union["Parameter", "Params"],
         cookie: str = "",
-        proxy: str = None,
+        proxy: str | None = None,
         sec_user_id: str = "",
         cursor=0,
         count=20,
@@ -134,6 +135,8 @@ async def test():
     from src.testers import Params
 
     async with Params() as params:
+        MixTikTok.params["msToken"] = params.ms_token_tiktok
+        MixListTikTok.params["msToken"] = params.ms_token_tiktok
         # i = MixTikTok(
         #     params,
         #     mix_id="",
